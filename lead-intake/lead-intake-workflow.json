@@ -1,0 +1,567 @@
+{
+  "name": "Lead Intake - Score, Route, Store",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Lion Sales Funnel - Project Enquiry",
+        "formDescription": "Tell us about your project and a strategist will get back to you.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Full Name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Work Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Company",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Monthly Budget (USD)",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Country",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "United States"
+                  },
+                  {
+                    "option": "Canada"
+                  },
+                  {
+                    "option": "United Kingdom"
+                  },
+                  {
+                    "option": "Australia"
+                  },
+                  {
+                    "option": "Singapore"
+                  },
+                  {
+                    "option": "Philippines"
+                  },
+                  {
+                    "option": "India"
+                  },
+                  {
+                    "option": "Other"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Service Interest",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Ongoing Retainer"
+                  },
+                  {
+                    "option": "Automation Build"
+                  },
+                  {
+                    "option": "Consultation"
+                  },
+                  {
+                    "option": "General Inquiry"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Project Notes",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -660,
+        300
+      ],
+      "id": "51107ac6-7305-48f8-890c-0685080c6509",
+      "name": "Form Submission",
+      "webhookId": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------\n// Lead validation, enrichment and scoring.\n// Runs once for ALL items so one form submission = one clean lead.\n// ---------------------------------------------------------------\nconst FREE_MAIL = ['gmail.com','yahoo.com','hotmail.com','outlook.com','icloud.com','aol.com','proton.me'];\nconst TIER1 = ['United States','Canada','United Kingdom','Australia','Singapore'];\nconst SERVICE_POINTS = {\n  'Ongoing Retainer': 25,\n  'Automation Build': 20,\n  'Consultation': 10,\n  'General Inquiry': 5,\n};\n\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[a-z]{2,}$/i;\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const f = item.json;\n\n  const name    = String(f['Full Name'] ?? '').trim();\n  const email   = String(f['Work Email'] ?? '').trim().toLowerCase();\n  const company = String(f['Company'] ?? '').trim();\n  const country = String(f['Country'] ?? '').trim();\n  const service = String(f['Service Interest'] ?? '').trim();\n  const notes   = String(f['Project Notes'] ?? '').trim();\n  const budget  = Number(f['Monthly Budget (USD)'] ?? 0);\n\n  // --- validation -------------------------------------------------\n  const errors = [];\n  if (name.length < 2)       errors.push('name_too_short');\n  if (!EMAIL_RE.test(email)) errors.push('invalid_email');\n  if (company.length < 2)    errors.push('company_missing');\n  if (!Number.isFinite(budget) || budget < 0) errors.push('invalid_budget');\n\n  const domain = email.includes('@') ? email.split('@')[1] : '';\n  const isCorporate = domain !== '' && !FREE_MAIL.includes(domain);\n\n  // --- scoring ----------------------------------------------------\n  let score = 0;\n  if (budget >= 5000)      score += 50;\n  else if (budget >= 2000) score += 35;\n  else if (budget >= 500)  score += 20;\n  else                     score += 5;\n\n  score += SERVICE_POINTS[service] ?? 0;\n  if (TIER1.includes(country)) score += 15;\n  if (isCorporate)             score += 10;\n  if (notes.length > 80)       score += 10;\n  score = Math.min(score, 100);\n\n  const tier = score >= 70 ? 'hot' : score >= 40 ? 'warm' : 'cold';\n\n  results.push({\n    json: {\n      lead_id: 'LD-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7).toUpperCase(),\n      submitted_at: new Date().toISOString(),\n      full_name: name,\n      email: email,\n      email_domain: domain,\n      is_corporate_email: isCorporate,\n      company: company,\n      country: country,\n      service_interest: service,\n      monthly_budget: budget,\n      notes: notes,\n      lead_score: score,\n      lead_tier: tier,\n      is_valid: errors.length === 0,\n      validation_errors: errors.join(', '),\n    },\n  });\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        300
+      ],
+      "id": "0d360f22-c1aa-48d5-9f26-7099a55b90e4",
+      "name": "Validate, Enrich & Score"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c714ec5e-0638-411e-8b7c-c1a41ed86e2a",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        300
+      ],
+      "id": "bf3d62ec-3b39-42e0-8863-b3a7d65677b3",
+      "name": "IF Submission Valid"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "7284acc3-ee04-4e34-8416-bf7ff0ba8b31",
+                    "leftValue": "={{ $json.lead_tier }}",
+                    "rightValue": "hot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Hot"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5a429189-a88c-4ecb-9887-c1e28dab02c3",
+                    "leftValue": "={{ $json.lead_tier }}",
+                    "rightValue": "warm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Warm"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9258b8c2-87ea-49c5-8cf1-fc643ce88280",
+                    "leftValue": "={{ $json.lead_tier }}",
+                    "rightValue": "cold",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Cold"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        20,
+        200
+      ],
+      "id": "2b643623-a975-467e-af65-0f46f988de58",
+      "name": "Route By Lead Tier"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        20,
+        520
+      ],
+      "id": "d1101813-c33b-47e9-ac68-18f7d4e9e241",
+      "name": "Discard Invalid Submission"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $json.lead_id }}",
+            "full_name": "={{ $json.full_name }}",
+            "email": "={{ $json.email }}",
+            "company": "={{ $json.company }}",
+            "country": "={{ $json.country }}",
+            "service_interest": "={{ $json.service_interest }}",
+            "monthly_budget": "={{ $json.monthly_budget }}",
+            "lead_score": "={{ $json.lead_score }}",
+            "lead_tier": "={{ $json.lead_tier }}",
+            "notes": "={{ $json.notes }}",
+            "status": "sales_queue",
+            "assigned_to": "senior-closer"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        280,
+        40
+      ],
+      "id": "67d43dc6-835b-4fc5-973e-c9cc83ece804",
+      "name": "Postgres - Upsert Hot Lead"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $json.lead_id }}",
+            "full_name": "={{ $json.full_name }}",
+            "email": "={{ $json.email }}",
+            "company": "={{ $json.company }}",
+            "country": "={{ $json.country }}",
+            "service_interest": "={{ $json.service_interest }}",
+            "monthly_budget": "={{ $json.monthly_budget }}",
+            "lead_score": "={{ $json.lead_score }}",
+            "lead_tier": "={{ $json.lead_tier }}",
+            "notes": "={{ $json.notes }}",
+            "status": "nurture",
+            "assigned_to": "sdr-team"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        280,
+        220
+      ],
+      "id": "1ca024d8-9c11-4f2c-aa87-0a8a63f9d74b",
+      "name": "Postgres - Upsert Warm Lead"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Priority Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json.lead_id }}",
+            "Submitted At": "={{ $json.submitted_at }}",
+            "Name": "={{ $json.full_name }}",
+            "Email": "={{ $json.email }}",
+            "Company": "={{ $json.company }}",
+            "Country": "={{ $json.country }}",
+            "Service": "={{ $json.service_interest }}",
+            "Budget": "={{ $json.monthly_budget }}",
+            "Score": "={{ $json.lead_score }}",
+            "Tier": "={{ $json.lead_tier }}",
+            "Owner": "={{ $json.assigned_to }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        540,
+        40
+      ],
+      "id": "9b519422-096e-4d92-bd03-80cab79e1180",
+      "name": "Sheets - Priority Leads"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Nurture Queue"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json.lead_id }}",
+            "Submitted At": "={{ $json.submitted_at }}",
+            "Name": "={{ $json.full_name }}",
+            "Email": "={{ $json.email }}",
+            "Company": "={{ $json.company }}",
+            "Country": "={{ $json.country }}",
+            "Service": "={{ $json.service_interest }}",
+            "Budget": "={{ $json.monthly_budget }}",
+            "Score": "={{ $json.lead_score }}",
+            "Tier": "={{ $json.lead_tier }}",
+            "Owner": "={{ $json.assigned_to }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        540,
+        220
+      ],
+      "id": "74e2c8b2-ec65-46d2-babe-24fe3770f3a7",
+      "name": "Sheets - Nurture Queue"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Cold Archive"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json.lead_id }}",
+            "Submitted At": "={{ $json.submitted_at }}",
+            "Name": "={{ $json.full_name }}",
+            "Email": "={{ $json.email }}",
+            "Company": "={{ $json.company }}",
+            "Country": "={{ $json.country }}",
+            "Service": "={{ $json.service_interest }}",
+            "Budget": "={{ $json.monthly_budget }}",
+            "Score": "={{ $json.lead_score }}",
+            "Tier": "={{ $json.lead_tier }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        280,
+        400
+      ],
+      "id": "4a1e24bb-f958-4431-9a9b-483a9fcf16c8",
+      "name": "Sheets - Cold Archive"
+    }
+  ],
+  "connections": {
+    "Form Submission": {
+      "main": [
+        [
+          {
+            "node": "Validate, Enrich & Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate, Enrich & Score": {
+      "main": [
+        [
+          {
+            "node": "IF Submission Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Submission Valid": {
+      "main": [
+        [
+          {
+            "node": "Route By Lead Tier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discard Invalid Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Lead Tier": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Upsert Warm Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets - Cold Archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Sheets - Priority Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Warm Lead": {
+      "main": [
+        [
+          {
+            "node": "Sheets - Nurture Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {}
+}
